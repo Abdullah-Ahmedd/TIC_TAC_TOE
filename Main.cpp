@@ -1,10 +1,59 @@
 #include <iostream>
 #include <vector>
-#include <fstream>
-#include <sstream>
-#include <limits>
+#include <sqlite3.h>
+#include <string>
+#include <cstdlib> // for rand()
+#include <ctime>   // for seeding rand()
 
 std::string currentUsername = ""; // To track logged-in user
+bool isNewUser = false;           // To know if user registered or logged in
+int aiDifficulty = 3;             // 1: Easy, 2: Medium, 3: Hard
+
+// -------- SQLite Functions --------
+sqlite3* db;
+int openDatabase() {
+    int rc = sqlite3_open("game.db", &db);
+    if (rc) {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+        return 1;
+    }
+    return 0;
+}
+
+int closeDatabase() {
+    sqlite3_close(db);
+    return 0;
+}
+
+int createTables() {
+    const char* createUserTableSQL = 
+        "CREATE TABLE IF NOT EXISTS users ("
+        "username TEXT PRIMARY KEY, "
+        "passwordHash TEXT NOT NULL);";
+    
+    const char* createHistoryTableSQL = 
+        "CREATE TABLE IF NOT EXISTS game_history ("
+        "username TEXT, "
+        "result TEXT, "
+        "FOREIGN KEY(username) REFERENCES users(username));";
+    
+    char* errMsg = nullptr;
+    int rc = sqlite3_exec(db, createUserTableSQL, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+        return 1;
+    }
+
+    rc = sqlite3_exec(db, createHistoryTableSQL, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+        return 1;
+    }
+
+    return 0;
+}
 
 // -------- User Class --------
 class User {
@@ -29,28 +78,33 @@ public:
     static std::string hashPassword(const std::string& password) {
         std::string hash = "";
         for (char c : password) {
-            hash += std::to_string((int)c + 5); // Simple shifting hash
+            hash += std::to_string((int)c + 5);
         }
         return hash;
     }
 };
 
-// Check if username already exists
+// Check if username already exists in the database
 bool userExists(const std::string& username) {
-    std::ifstream file("users.txt");
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string storedUsername;
-        iss >> storedUsername;
-        if (storedUsername == username) {
-            return true;
-        }
+    std::string sql = "SELECT COUNT(*) FROM users WHERE username = '" + username + "';";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to fetch user: " << sqlite3_errmsg(db) << std::endl;
+        return false;
     }
+    
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        int count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+        return count > 0;
+    }
+    sqlite3_finalize(stmt);
     return false;
 }
 
-// Register new user
+// Register new user in SQLite
 void registerUser() {
     std::string uname, pword;
     std::cout << "Enter new username: ";
@@ -64,11 +118,17 @@ void registerUser() {
 
     User newUser(uname, pword);
 
-    std::ofstream file("users.txt", std::ios::app);
-    file << newUser.getUsername() << " " << newUser.getPasswordHash() << "\n";
-    file.close();
-    currentUsername = uname;
-    std::cout << "Registration successful!\n";
+    std::string sql = "INSERT INTO users (username, passwordHash) VALUES ('" + uname + "', '" + newUser.getPasswordHash() + "');";
+    char* errMsg = nullptr;
+    int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+    } else {
+        currentUsername = uname;
+        isNewUser = true;
+        std::cout << "Registration successful!\n";
+    }
 }
 
 // Login existing user
@@ -79,85 +139,90 @@ bool loginUser() {
     std::cout << "Enter password: ";
     std::cin >> pword;
 
-    std::ifstream file("users.txt");
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string storedUsername, storedHash;
-        iss >> storedUsername >> storedHash;
-        if (storedUsername == uname && storedHash == User::hashPassword(pword)) {
+    std::string sql = "SELECT passwordHash FROM users WHERE username = '" + uname + "';";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to fetch user: " << sqlite3_errmsg(db) << std::endl;
+        return false;
+    }
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        std::string storedHash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (storedHash == User::hashPassword(pword)) {
             std::cout << "Login successful!\n";
             currentUsername = uname;
+            sqlite3_finalize(stmt);
             return true;
         }
     }
     std::cout << "Invalid username or password!\n";
+    sqlite3_finalize(stmt);
     return false;
 }
 
-// Save game result
+// Save game result to SQLite
 void saveGameResult(const std::string& username, const std::string& result) {
-    std::ofstream file("history.txt", std::ios::app);
-    file << username << " " << result << "\n";
-    file.close();
+    std::string sql = "INSERT INTO game_history (username, result) VALUES ('" + username + "', '" + result + "');";
+    char* errMsg = nullptr;
+    int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+    }
 }
 
-// Show game history
+// Show game history from SQLite
 void showGameHistory(const std::string& username) {
-    std::ifstream file("history.txt");
-    if (!file) {
-        std::cout << "No game history found!\n";
+    std::string sql = "SELECT result FROM game_history WHERE username = '" + username + "';";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to fetch game history: " << sqlite3_errmsg(db) << std::endl;
         return;
     }
 
-    std::string line;
     bool found = false;
     std::cout << "\nGame History for " << username << ":\n";
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string storedUsername, result;
-        iss >> storedUsername >> result;
-        if (storedUsername == username) {
-            std::cout << "- " << result << "\n";
-            found = true;
-        }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::string result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        std::cout << "- " << result << "\n";
+        found = true;
     }
 
     if (!found) {
         std::cout << "No games played yet.\n";
     }
-    std::cout << "-------------------------\n";
+    sqlite3_finalize(stmt);
 }
 
-// Show score summary
+// Show score summary from SQLite
 void showScoreSummary(const std::string& username) {
-    std::ifstream file("history.txt");
-    if (!file) {
-        std::cout << "No game history found!\n";
+    std::string sql = "SELECT result FROM game_history WHERE username = '" + username + "';";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to fetch game history: " << sqlite3_errmsg(db) << std::endl;
         return;
     }
 
     int wins = 0, losses = 0, draws = 0;
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream iss(line);
-        std::string storedUsername, result;
-        iss >> storedUsername >> result;
-        if (storedUsername == username) {
-            if (result == "WIN")
-                wins++;
-            else if (result == "LOSS")
-                losses++;
-            else if (result == "DRAW")
-                draws++;
-        }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::string result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (result == "WIN")
+            wins++;
+        else if (result == "LOSS")
+            losses++;
+        else if (result == "DRAW")
+            draws++;
     }
 
     std::cout << "\nScore Summary for " << username << ":\n";
     std::cout << "Wins: " << wins << "\n";
     std::cout << "Losses: " << losses << "\n";
     std::cout << "Draws: " << draws << "\n";
-    std::cout << "-------------------------\n";
+    sqlite3_finalize(stmt);
 }
 
 // -------- Game Class --------
@@ -307,80 +372,97 @@ std::pair<int, int> findBestMove(Game& game) {
             }
         }
     }
+
     return bestMove;
 }
 
-// -------- Main --------
-int main() {
-    int userChoice;
-    std::cout << "Welcome!\n1. Register\n2. Login\nChoice: ";
-    std::cin >> userChoice;
-
-    if (userChoice == 1) {
-        registerUser();
-    } else if (userChoice == 2) {
-        if (!loginUser()) {
-            std::cout << "Exiting...\n";
-            return 0;
-        }
-    } else {
-        std::cout << "Invalid choice.\n";
-        return 0;
-    }
-
-    std::cout << "Do you want to view your previous game history? (1 = Yes, 2 = No): ";
-    int viewHistoryChoice;
-    std::cin >> viewHistoryChoice;
-    if (viewHistoryChoice == 1) {
-        showGameHistory(currentUsername);
-        showScoreSummary(currentUsername);
-    }
-
+void playTicTacToe() {
+    srand(time(0));
     Game game;
-    int mode;
-    std::cout << "Choose mode:\n1. Player vs Player\n2. Player vs AI\nChoice: ";
-    std::cin >> mode;
-
     int row, col;
-    bool playing = true;
+    bool playerTurn = true;
+    
+    std::cout << "Welcome to Tic-Tac-Toe!" << std::endl;
+    game.printBoard();
 
-    while (playing) {
-        game.printBoard();
-
-        if (mode == 2 && game.getCurrentPlayer() == 'O') {
-            std::cout << "AI is thinking...\n";
-            auto bestMove = findBestMove(game);
-            game.makeMove(bestMove.first, bestMove.second);
-        } else {
-            std::cout << "Player " << game.getCurrentPlayer() << ", enter row and column (0-2): ";
+    while (true) {
+        if (playerTurn) {
+            std::cout << "Your move (row and column): ";
             std::cin >> row >> col;
-            if (!game.makeMove(row, col)) {
-                std::cout << "Invalid move. Try again.\n";
-                continue;
-            }
-        }
-
-        if (game.checkWin(game.getCurrentPlayer())) {
-            game.printBoard();
-            std::cout << "Player " << game.getCurrentPlayer() << " wins!\n";
-            if (mode == 2) {
-                if (game.getCurrentPlayer() == 'X')
+            if (game.makeMove(row, col)) {
+                game.printBoard();
+                if (game.checkWin('X')) {
+                    std::cout << "You win!" << std::endl;
                     saveGameResult(currentUsername, "WIN");
-                else
-                    saveGameResult(currentUsername, "LOSS");
+                    break;
+                }
+                game.switchPlayer();
             } else {
-                saveGameResult(currentUsername, "WIN");
+                std::cout << "Invalid move. Try again!" << std::endl;
             }
-            playing = false;
-        } else if (game.checkDraw()) {
-            game.printBoard();
-            std::cout << "It's a draw!\n";
-            saveGameResult(currentUsername, "DRAW");
-            playing = false;
         } else {
+            std::cout << "AI's move...\n";
+            std::pair<int, int> bestMove = findBestMove(game);
+            game.setCell(bestMove.first, bestMove.second, 'O');
+            game.printBoard();
+            if (game.checkWin('O')) {
+                std::cout << "AI wins!" << std::endl;
+                saveGameResult(currentUsername, "LOSS");
+                break;
+            }
             game.switchPlayer();
         }
+        
+        if (game.checkDraw()) {
+            std::cout << "It's a draw!" << std::endl;
+            saveGameResult(currentUsername, "DRAW");
+            break;
+        }
+    }
+}
+
+int main() {
+    if (openDatabase()) {
+        return 1;
+    }
+    if (createTables()) {
+        closeDatabase();
+        return 1;
     }
 
+    int option;
+
+    std::cout << "Welcome to Tic-Tac-Toe\n";
+    std::cout << "1. Register\n2. Login\nEnter your choice: ";
+    std::cin >> option;
+
+    if (option == 1) {
+        registerUser();
+    } else if (option == 2) {
+        if (!loginUser()) {
+            closeDatabase();
+            return 0;
+        }
+    }
+
+    int gameOption;
+    while (true) {
+        std::cout << "\n1. Play Tic-Tac-Toe\n2. View Game History\n3. View Score Summary\n4. Logout\nEnter your choice: ";
+        std::cin >> gameOption;
+
+        if (gameOption == 1) {
+            playTicTacToe();
+        } else if (gameOption == 2) {
+            showGameHistory(currentUsername);
+        } else if (gameOption == 3) {
+            showScoreSummary(currentUsername);
+        } else if (gameOption == 4) {
+            std::cout << "Logging out...\n";
+            currentUsername = "";
+            break;
+        }
+    }
+
+    closeDatabase();
     return 0;
 }
