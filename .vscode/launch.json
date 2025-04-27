@@ -1,24 +1,34 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "C/C++ Runner: Debug Session",
-      "type": "cppdbg",
-      "request": "launch",
-      "args": [],
-      "stopAtEntry": false,
-      "externalConsole": true,
-      "cwd": "c:/Users/User/Github/TIC_TAC_TOE",
-      "program": "c:/Users/User/Github/TIC_TAC_TOE/build/Debug/outDebug",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
-    }
-  ]
-}
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Debug tictactoe",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/build/tictactoe.exe",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": true,
+        "MIMode": "gdb",
+        "setupCommands": [
+          {
+            "description": "Enable pretty-printing for gdb",
+            "text": "-enable-pretty-printing",
+            "ignoreFailures": true
+          }
+        ],
+        "miDebuggerPath": "C:/mingw64/bin/gdb.exe",
+        "preLaunchTask": "Build Project",
+        "miDebuggerArgs": "",
+        "logging": {
+          "moduleLoad": false
+        },
+        "showDisplayString": true,
+        "symbolSearchPath": "",
+        "sourceFileMap": {}
+      }
+    ]
+  }
+  

@@ -1,6 +1,7 @@
 #include <iostream>
-#include <sqlite3.h>  // Include SQLite3 header
-#include "SQLiteCpp.h"
+#include "sqlite3.h"
+
+
 
 // Callback function for retrieving data
 static int callback(void *NotUsed, int argc, char **argv, char **azColName) {

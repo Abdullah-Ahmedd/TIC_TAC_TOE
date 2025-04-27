@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Project",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-std=c++17",
+        "tictactoe.cpp",
+        "sqlite/sqlite3.c",
+        "-I",
+        "sqlite",
+        "-o",
+        "build/tictactoe.exe"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}
