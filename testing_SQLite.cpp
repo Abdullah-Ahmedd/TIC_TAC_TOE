@@ -1,72 +1,60 @@
 #include <iostream>
-#include "sqlite3.h"
-#include "sqlite3.c"
-//#include "sqlite3ext.h"
-//#include "shell.c"
+#include <sqlite3.h>  // Include SQLite3 header
+#include "SQLiteCpp.h"
 
-using namespace std;
-
-// Callback function to display query results
-static int callback(void *data, int argc, char **argv, char **azColName) {
+// Callback function for retrieving data
+static int callback(void *NotUsed, int argc, char **argv, char **azColName) {
     for (int i = 0; i < argc; i++) {
-        cout << azColName[i] << ": " << (argv[i] ? argv[i] : "NULL") << endl;
+        std::cout << azColName[i] << " = " << (argv[i] ? argv[i] : "NULL") << std::endl;
     }
+    std::cout << std::endl;
     return 0;
 }
 
 int main() {
-    sqlite3 *db;
-    char *errMessage = 0;
-    
-    // Open database (will create one if it doesn't exist)
-    int rc = sqlite3_open("test.db", &db);
+    sqlite3 *db;  // Database connection object
+    char *errMsg = 0;
 
+    // Open or create the database (test.db) in the current directory
+    int rc = sqlite3_open("test.db", &db);  // 'test.db' is the database file
     if (rc) {
-        cout << "Can't open database: " << sqlite3_errmsg(db) << endl;
-        return(0);
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+        return (0);
     } else {
-        cout << "Opened database successfully" << endl;
+        std::cout << "Opened database successfully" << std::endl;
     }
 
-    // Create table
-    const char* createTableSQL = "CREATE TABLE IF NOT EXISTS users ("
-                                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                                 "username TEXT NOT NULL,"
-                                 "password TEXT NOT NULL);";
-    
-    rc = sqlite3_exec(db, createTableSQL, callback, 0, &errMessage);
-
+    // Create a table if it doesn't already exist
+    const char *createTableSQL = "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT);";
+    rc = sqlite3_exec(db, createTableSQL, 0, 0, &errMsg);
     if (rc != SQLITE_OK) {
-        cout << "SQL error: " << errMessage << endl;
-        sqlite3_free(errMessage);
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
     } else {
-        cout << "Table created successfully" << endl;
+        std::cout << "Table created successfully (if not already exists)" << std::endl;
     }
 
     // Insert some data into the table
-    const char* insertSQL = "INSERT INTO users (username, password) VALUES ('user1', 'password123');";
-    
-    rc = sqlite3_exec(db, insertSQL, callback, 0, &errMessage);
-
+    const char *insertSQL = "INSERT INTO users (name) VALUES ('John Doe');";
+    rc = sqlite3_exec(db, insertSQL, 0, 0, &errMsg);
     if (rc != SQLITE_OK) {
-        cout << "SQL error: " << errMessage << endl;
-        sqlite3_free(errMessage);
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
     } else {
-        cout << "Record inserted successfully" << endl;
+        std::cout << "Data inserted successfully" << std::endl;
     }
 
-    // Select data from the table
-    const char* selectSQL = "SELECT * FROM users;";
-    
-    rc = sqlite3_exec(db, selectSQL, callback, 0, &errMessage);
-
+    // Query the database to retrieve the data
+    const char *selectSQL = "SELECT * FROM users;";
+    rc = sqlite3_exec(db, selectSQL, callback, 0, &errMsg);
     if (rc != SQLITE_OK) {
-        cout << "SQL error: " << errMessage << endl;
-        sqlite3_free(errMessage);
+        std::cerr << "SQL error: " << errMsg << std::endl;
+        sqlite3_free(errMsg);
+    } else {
+        std::cout << "Query executed successfully" << std::endl;
     }
 
-    // Close the database
+    // Close the database connection
     sqlite3_close(db);
-
     return 0;
 }
