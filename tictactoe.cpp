@@ -4,6 +4,7 @@
 #include <string>
 #include <ctime>
 #include <cstdlib>
+#include <sstream>
 
 using namespace std;
 
@@ -16,12 +17,26 @@ bool againstAI = false;
 int aiDifficulty = 1; // 1 = Easy, 2 = Medium, 3 = Hard
 
 // Hash function (simple)
-string simpleHash(string password) {
+string simpleHash(const string& password) {
     int hash = 0;
     for (char c : password) {
         hash += c;
     }
     return to_string(hash);
+}
+
+// Escape string for SQL queries to prevent SQL injection
+string escapeString(const string& str) {
+    string result;
+    for (char c : str) {
+        if (c == '\'') {
+            result += "''"; // Escape single quotes by doubling them
+        }
+        else {
+            result += c;
+        }
+    }
+    return result;
 }
 
 // SQL execution
@@ -54,15 +69,21 @@ void setupDatabase() {
 }
 
 // Register
-bool registerUser() {
-    string username, password;
+bool registerUser(string& username) {
+    string password;
     cout << "Enter new username: ";
     cin >> username;
     cout << "Enter new password: ";
     cin >> password;
 
-    string sql = "INSERT INTO Users (username, password) VALUES ('" + username + "', '" + simpleHash(password) + "');";
-    if (executeSQL(sql)) {
+    string escapedUsername = escapeString(username);
+    string hashedPassword = simpleHash(password);
+
+    stringstream ss;
+    ss << "INSERT INTO Users (username, password) VALUES ('"
+        << escapedUsername << "', '" << hashedPassword << "');";
+
+    if (executeSQL(ss.str())) {
         cout << "User registered successfully!\n";
         return true;
     }
@@ -73,16 +94,22 @@ bool registerUser() {
 }
 
 // Login
-bool loginUser(string& user) {
-    string username, password;
+bool loginUser(string& username) {
+    string password;
     cout << "Enter username: ";
     cin >> username;
     cout << "Enter password: ";
     cin >> password;
 
-    string sql = "SELECT * FROM Users WHERE username = '" + username + "' AND password = '" + simpleHash(password) + "';";
+    string escapedUsername = escapeString(username);
+    string hashedPassword = simpleHash(password);
+
+    stringstream ss;
+    ss << "SELECT * FROM Users WHERE username = '"
+        << escapedUsername << "' AND password = '" << hashedPassword << "';";
+
     sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
+    int rc = sqlite3_prepare_v2(db, ss.str().c_str(), -1, &stmt, 0);
 
     if (rc != SQLITE_OK) {
         cerr << "Failed to fetch data: " << sqlite3_errmsg(db) << endl;
@@ -92,7 +119,6 @@ bool loginUser(string& user) {
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
         cout << "Login successful! Welcome " << username << "!\n";
-        user = username;
         sqlite3_finalize(stmt);
         return true;
     }
@@ -120,24 +146,33 @@ void displayBoard() {
 }
 
 char checkWinner() {
+    // Check rows
     for (int i = 0; i < 3; i++) {
         if (board[i][0] != ' ' &&
             board[i][0] == board[i][1] &&
             board[i][1] == board[i][2])
             return board[i][0];
+    }
+
+    // Check columns
+    for (int i = 0; i < 3; i++) {
         if (board[0][i] != ' ' &&
             board[0][i] == board[1][i] &&
             board[1][i] == board[2][i])
             return board[0][i];
     }
+
+    // Check diagonals
     if (board[0][0] != ' ' &&
         board[0][0] == board[1][1] &&
         board[1][1] == board[2][2])
         return board[0][0];
+
     if (board[0][2] != ' ' &&
         board[0][2] == board[1][1] &&
         board[1][1] == board[2][0])
         return board[0][2];
+
     return ' ';
 }
 
@@ -158,12 +193,14 @@ pair<int, int> easyAIMove() {
         for (int j = 0; j < 3; j++)
             if (board[i][j] == ' ')
                 moves.push_back({ i, j });
+
+    if (moves.empty()) return { -1, -1 }; // Safety check
     return moves[rand() % moves.size()];
 }
 
 // AI Medium
 pair<int, int> mediumAIMove(char aiChar, char playerChar) {
-    // Try win
+    // Try to win
     for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
         if (board[i][j] == ' ') {
             board[i][j] = aiChar;
@@ -174,7 +211,8 @@ pair<int, int> mediumAIMove(char aiChar, char playerChar) {
             board[i][j] = ' ';
         }
     }
-    // Try block
+
+    // Try to block
     for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
         if (board[i][j] == ' ') {
             board[i][j] = playerChar;
@@ -185,6 +223,8 @@ pair<int, int> mediumAIMove(char aiChar, char playerChar) {
             board[i][j] = ' ';
         }
     }
+
+    // If no winning or blocking move, make a random move
     return easyAIMove();
 }
 
@@ -212,7 +252,8 @@ int minimax(bool isAI, char aiChar, char playerChar) {
 
 pair<int, int> hardAIMove(char aiChar, char playerChar) {
     int bestScore = -1000;
-    pair<int, int> bestMove;
+    pair<int, int> bestMove = { -1, -1 }; // Default invalid move
+
     for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
         if (board[i][j] == ' ') {
             board[i][j] = aiChar;
@@ -224,19 +265,26 @@ pair<int, int> hardAIMove(char aiChar, char playerChar) {
             }
         }
     }
+
     return bestMove;
 }
 
 // Save Game History
-void saveGameHistory(string result, string user) {
-    string sql = "INSERT INTO History (username, result) VALUES ('" + user + "', '" + result + "');";
-    executeSQL(sql);
+void saveGameHistory(const string& result, const string& user) {
+    string escapedUser = escapeString(user);
+    string escapedResult = escapeString(result);
+
+    stringstream ss;
+    ss << "INSERT INTO History (username, result) VALUES ('"
+        << escapedUser << "', '" << escapedResult << "');";
+
+    executeSQL(ss.str());
 }
 
 // View Game History
 void viewHistory() {
     cout << "\nGame History:\n";
-    string sql = "SELECT username, result, date FROM History;";
+    string sql = "SELECT username, result, date FROM History ORDER BY date DESC LIMIT 20;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
 
@@ -245,12 +293,22 @@ void viewHistory() {
         return;
     }
 
+    cout << "----------------------------------------\n";
+    cout << "| Username       | Result          | Date                  |\n";
+    cout << "----------------------------------------\n";
+
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         string username = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         string result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         string date = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        cout << username << " - " << result << " - " << date << endl;
+        cout << "| " << username;
+        for (size_t i = username.length(); i < 15; i++) cout << " ";
+        cout << "| " << result;
+        for (size_t i = result.length(); i < 15; i++) cout << " ";
+        cout << "| " << date << " |\n";
     }
+    cout << "----------------------------------------\n";
+
     sqlite3_finalize(stmt);
 }
 
@@ -262,6 +320,9 @@ void playGame() {
 
     while (true) {
         displayBoard();
+
+        string currentPlayerName = (player == 'X') ? currentUser : (againstAI ? "AI" : secondUser);
+
         if (againstAI && player == 'O') {
             pair<int, int> move;
             if (aiDifficulty == 1)
@@ -270,50 +331,98 @@ void playGame() {
                 move = mediumAIMove('O', 'X');
             else
                 move = hardAIMove('O', 'X');
+
             row = move.first;
             col = move.second;
             cout << "AI chooses: " << row << ", " << col << endl;
         }
         else {
-            cout << "Player " << player << ", enter your move (row and column): ";
+            cout << "Player " << player << " (" << currentPlayerName << "), enter your move (row and column): ";
             cin >> row >> col;
+
+            // Input validation
+            while (cin.fail() || row < 0 || row > 2 || col < 0 || col > 2 || board[row][col] != ' ') {
+                if (cin.fail()) {
+                    cin.clear();
+                    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                }
+                cout << "Invalid move. Please enter row (0-2) and column (0-2) for an empty cell: ";
+                cin >> row >> col;
+            }
         }
 
-        if (row >= 0 && row < 3 && col >= 0 && col < 3 && board[row][col] == ' ') {
-            board[row][col] = player;
-            char winner = checkWinner();
-            if (winner != ' ') {
-                displayBoard();
-                if (againstAI) {
-                    if (winner == 'X') {
-                        cout << "Congratulations " << currentUser << "! You win!\n";
-                        saveGameHistory("Win vs AI", currentUser);
-                    }
-                    else {
-                        cout << "AI wins! Better luck next time!\n";
-                        saveGameHistory("Lost vs AI", currentUser);
-                    }
+        board[row][col] = player;
+        char winner = checkWinner();
+
+        if (winner != ' ') {
+            displayBoard();
+            if (againstAI) {
+                if (winner == 'X') {
+                    cout << "Congratulations " << currentUser << "! You win!\n";
+                    saveGameHistory("Win vs AI", currentUser);
                 }
                 else {
-                    string winnerName = (winner == 'X') ? currentUser : secondUser;
-                    cout << "Congratulations " << winnerName << "! You win!\n";
-                    saveGameHistory("Won against " + ((winnerName == currentUser) ? secondUser : currentUser), winnerName);
+                    cout << "AI wins! Better luck next time!\n";
+                    saveGameHistory("Lost vs AI", currentUser);
                 }
-                break;
             }
-            if (isDraw()) {
-                displayBoard();
-                cout << "It's a draw!\n";
-                saveGameHistory("Draw", currentUser);
-                if (!againstAI) saveGameHistory("Draw", secondUser);
-                break;
+            else {
+                string winnerName = (winner == 'X') ? currentUser : secondUser;
+                string loserName = (winner == 'X') ? secondUser : currentUser;
+                cout << "Congratulations " << winnerName << "! You win!\n";
+                saveGameHistory("Won against " + loserName, winnerName);
+                saveGameHistory("Lost to " + winnerName, loserName);
             }
-            player = (player == 'X') ? 'O' : 'X';
+            break;
+        }
+
+        if (isDraw()) {
+            displayBoard();
+            cout << "It's a draw!\n";
+            saveGameHistory("Draw", currentUser);
+            if (!againstAI) saveGameHistory("Draw", secondUser);
+            break;
+        }
+
+        player = (player == 'X') ? 'O' : 'X';
+    }
+}
+
+// Handle second player registration/login
+bool handleSecondPlayer() {
+    int choice;
+    bool secondLoggedIn = false;
+
+    cout << "\nSecond Player Login/Register:\n";
+    while (!secondLoggedIn) {
+        cout << "1. Register\n2. Login\nChoose option: ";
+        cin >> choice;
+
+        if (cin.fail()) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Invalid input. Please enter 1 or 2.\n";
+            continue;
+        }
+
+        if (choice == 1) {
+            secondLoggedIn = registerUser(secondUser);
+        }
+        else if (choice == 2) {
+            secondLoggedIn = loginUser(secondUser);
         }
         else {
-            cout << "Invalid move. Try again.\n";
+            cout << "Invalid choice. Try again.\n";
+        }
+
+        // Make sure second player isn't the same as first player
+        if (secondLoggedIn && secondUser == currentUser) {
+            cout << "You cannot play against yourself! Please use a different account.\n";
+            secondLoggedIn = false;
         }
     }
+
+    return secondLoggedIn;
 }
 
 // Main Menu
@@ -339,9 +448,16 @@ int main() {
     while (!loggedIn) {
         cout << "1. Register\n2. Login\nChoose option: ";
         cin >> choice;
+
+        if (cin.fail()) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Invalid input. Please enter 1 or 2.\n";
+            continue;
+        }
+
         if (choice == 1) {
-            loggedIn = registerUser();
-            if (loggedIn) currentUser = "temp";
+            loggedIn = registerUser(currentUser);
         }
         else if (choice == 2) {
             loggedIn = loginUser(currentUser);
@@ -351,52 +467,47 @@ int main() {
         }
     }
 
-    cout << "\nChoose game mode:\n";
-    cout << "1. Play against another Player\n";
-    cout << "2. Play against AI\n";
-    cout << "Choice: ";
-    cin >> choice;
-
-    if (choice == 1) {
-        againstAI = false;
-        cout << "\nSecond Player Login/Register:\n";
-        bool secondLoggedIn = false;
-        while (!secondLoggedIn) {
-            cout << "1. Register\n2. Login\nChoose option: ";
-            cin >> choice;
-            if (choice == 1) {
-                secondLoggedIn = registerUser();
-                if (secondLoggedIn) secondUser = "temp2";
-            }
-            else if (choice == 2) {
-                secondLoggedIn = loginUser(secondUser);
-            }
-            else {
-                cout << "Invalid choice. Try again.\n";
-            }
-        }
-    }
-    else if (choice == 2) {
-        againstAI = true;
-        cout << "\nChoose AI Difficulty:\n";
-        cout << "1. Easy\n2. Medium\n3. Hard\nChoice: ";
-        cin >> aiDifficulty;
-    }
-    else {
-        cout << "Invalid choice, exiting.\n";
-        return 0;
-    }
-
     while (true) {
-        cout << "\n1. Play Game\n2. View History\n3. Exit\nChoose option: ";
+        cout << "\nMain Menu:\n";
+        cout << "1. Play against another Player\n";
+        cout << "2. Play against AI\n";
+        cout << "3. View History\n";
+        cout << "4. Exit\n";
+        cout << "Choice: ";
         cin >> choice;
+
+        if (cin.fail()) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Invalid input. Please enter a number between 1 and 4.\n";
+            continue;
+        }
+
         if (choice == 1) {
-            playGame();
+            againstAI = false;
+            if (handleSecondPlayer()) {
+                playGame();
+            }
         }
         else if (choice == 2) {
-            viewHistory();
+            againstAI = true;
+            cout << "\nChoose AI Difficulty:\n";
+            cout << "1. Easy\n2. Medium\n3. Hard\nChoice: ";
+            cin >> aiDifficulty;
+
+            if (cin.fail() || aiDifficulty < 1 || aiDifficulty > 3) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Invalid difficulty. Setting to Easy (1).\n";
+                aiDifficulty = 1;
+            }
+
+            playGame();
         }
         else if (choice == 3) {
+            viewHistory();
+        }
+        else if (choice == 4) {
             cout << "Goodbye!\n";
             break;
         }
