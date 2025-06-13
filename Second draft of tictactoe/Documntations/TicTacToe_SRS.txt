@@ -99,4 +99,10 @@ B. External Libraries:
 - sqlite3
 
 C. Authors and Contributors:
-- Developed by Abdullah Ahmed
+ Developed by 
+-Abdullah Ahmed
+-Ahmed Osama
+- AHmed Bakeer
+-Mohamed Amr
+-Huissen Mohamed
+
