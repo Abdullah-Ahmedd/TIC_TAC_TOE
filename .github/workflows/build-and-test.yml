@@ -1,0 +1,39 @@
+name: Build and Test C/C++ Project
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v3
+
+    - name: 🛠 Install Build Tools
+      run: sudo apt update && sudo apt install -y build-essential
+
+    - name: 🔍 Find and Compile All .c and .cpp Files
+      run: |
+        mkdir -p build
+        g++ -Wall -Werror *.cpp *.c -o build/app.out
+
+    - name: 🚀 Run Basic Smoke Test
+      run: |
+        echo "Running app..."
+        ./build/app.out <<EOF
+        2
+        testuser
+        1234
+        4
+        EOF
+
+    - name: 📦 Upload Compiled Binary (Optional)
+      uses: actions/upload-artifact@v3
+      with:
+        name: compiled-app
+        path: build/app.out
