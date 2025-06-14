@@ -1,4 +1,3 @@
-it didnt give an error 
 # .github/workflows/ci-cd.yml
 name: TIC_TAC_TOE CI/CD Pipeline
 
