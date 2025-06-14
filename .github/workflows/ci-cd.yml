@@ -1,4 +1,3 @@
-# .github/workflows/ci-cd.yml
 name: TIC_TAC_TOE CI/CD Pipeline
 
 on:
@@ -14,20 +13,16 @@ env:
   PYTHON_VERSION: '3.9'
 
 jobs:
-  # Basic setup and dependency installation
   setup:
     name: Setup and Install Dependencies
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        
     - name: Cache node modules
       id: cache-npm
       uses: actions/cache@v3
@@ -40,274 +35,41 @@ jobs:
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-
           ${{ runner.os }}-
-        
     - name: Install dependencies
       run: |
-        if [ -f "package-lock.json" ]; then
-          npm ci
-        elif [ -f "yarn.lock" ]; then
-          yarn install --frozen-lockfile
-        elif [ -f "package.json" ]; then
-          npm install
-        else
-          echo "No package.json found, skipping npm install"
-        fi
+        if [ -f "package-lock.json" ]; then npm ci
+        elif [ -f "yarn.lock" ]; then yarn install --frozen-lockfile
+        elif [ -f "package.json" ]; then npm install
+        else echo "No package.json found, skipping npm install"
 
-  # Code quality checks
-  lint-and-format:
-    name: Code Quality Check
+  build-cpp:
+    name: Build C/C++ Code
     runs-on: ubuntu-latest
     needs: setup
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        
-    - name: Install dependencies
+    - name: Install build tools
+      run: sudo apt update && sudo apt install -y build-essential
+    - name: Build using Makefile or fallback
       run: |
-        if [ -f "package.json" ]; then
-          npm install
+        if [ -f Makefile ]; then make
         else
-          echo "No package.json found, creating basic one"
-          npm init -y
-          npm install --save-dev eslint prettier
-        fi
-      
-    - name: Run ESLint (if configured)
-      run: |
-        if npm list eslint >/dev/null 2>&1; then
-          npm run lint || echo "ESLint not configured or failed"
-        else
-          echo "ESLint not installed, skipping"
-        fi
-      
-    - name: Run Prettier (if configured)
-      run: |
-        if npm list prettier >/dev/null 2>&1; then
-          npm run format:check || echo "Prettier not configured or failed"
-        else
-          echo "Prettier not installed, skipping"
-        fi
-      
-    - name: Check TypeScript (if configured)
-      run: |
-        if [ -f "tsconfig.json" ] && npm list typescript >/dev/null 2>&1; then
-          npm run type-check || echo "TypeScript check failed"
-        else
-          echo "TypeScript not configured, skipping"
-        fi
+          echo "No Makefile found. Attempting g++ compilation."
+          mkdir -p build
+          g++ -Wall -Werror *.cpp *.c -o build/app.out
 
-  # Frontend tests
-  test-frontend:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-    needs: setup
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        
-    - name: Install dependencies
-      run: |
-        if [ -f "package.json" ]; then
-          npm install
-        else
-          echo "No package.json found, skipping tests"
-          exit 0
-        fi
-      
-    - name: Run unit tests
-      run: |
-        if npm run | grep -q "test:unit"; then
-          npm run test:unit || echo "Unit tests failed or not configured"
-        elif npm run | grep -q "test"; then
-          npm test || echo "Tests failed or not configured"
-        else
-          echo "No tests configured, skipping"
-        fi
-      
-    - name: Run integration tests
-      run: |
-        if npm run | grep -q "test:integration"; then
-          npm run test:integration || echo "Integration tests failed or not configured"
-        else
-          echo "Integration tests not configured, skipping"
-        fi
-
-  # Backend tests (if Python backend exists)
-  test-backend:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    needs: setup
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Check if Python backend exists
-      id: check-python
-      run: |
-        if [ -f "requirements.txt" ] || [ -d "src" ] && find src -name "*.py" | head -1; then
-          echo "python_backend=true" >> $GITHUB_OUTPUT
-        else
-          echo "python_backend=false" >> $GITHUB_OUTPUT
-        fi
-      
-    - name: Setup Python
-      if: steps.check-python.outputs.python_backend == 'true'
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        
-    - name: Install Python dependencies
-      if: steps.check-python.outputs.python_backend == 'true'
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f "requirements.txt" ]; then
-          pip install -r requirements.txt
-        fi
-        if [ -f "requirements-dev.txt" ]; then
-          pip install -r requirements-dev.txt
-        fi
-        
-    - name: Run Python tests
-      if: steps.check-python.outputs.python_backend == 'true'
-      run: |
-        if command -v pytest &> /dev/null; then
-          pytest tests/ -v || echo "Python tests failed or no tests found"
-        else
-          echo "pytest not available, skipping Python tests"
-        fi
-
-  # Build application
   build:
     name: Build Application
     runs-on: ubuntu-latest
-    needs: [lint-and-format, test-frontend, test-backend]
-    
+    needs: build-cpp
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        
-    - name: Install dependencies
-      run: |
-        if [ -f "package.json" ]; then
-          npm install
-        fi
-      
-    - name: Build frontend
-      run: |
-        if npm run | grep -q "build"; then
-          npm run build
-        else
-          echo "No build script found, creating basic dist folder"
-          mkdir -p dist
-          echo "<h1>TIC_TAC_TOE</h1>" > dist/index.html
-        fi
-      env:
-        NODE_ENV: production
-        
-    - name: Build Docker image (if Dockerfile exists)
-      run: |
-        if [ -f "Dockerfile" ]; then
-          docker build -t tictactoe:${{ github.sha }} .
-          docker tag tictactoe:${{ github.sha }} tictactoe:latest
-          docker save tictactoe:${{ github.sha }} | gzip > tictactoe-image.tar.gz
-        else
-          echo "No Dockerfile found, skipping Docker build"
-        fi
-        
-    - name: Upload build artifacts
+    - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts
+        name: tic-tac-toe-binary
         path: |
-          dist/
-          *.tar.gz
-        retention-days: 30
-
-  # Deploy to staging
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/develop'
-    environment: staging
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: build-artifacts
-        
-    - name: Deploy to staging
-      run: |
-        echo "Deploying to staging environment..."
-        echo "Build artifacts available in: $(ls -la)"
-        # Add your staging deployment commands here
-        # For example: rsync, AWS CLI, kubectl, etc.
-        
-    - name: Run smoke tests
-      run: |
-        echo "Running smoke tests on staging..."
-        # Add smoke test commands here
-
-  # Deploy to production
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: build-artifacts
-        
-    - name: Deploy to production
-      run: |
-        echo "Deploying to production environment..."
-        echo "Build artifacts available in: $(ls -la)"
-        # Add your production deployment commands here
-        
-    - name: Health check
-      run: |
-        echo "Running health checks on production..."
-        # Add health check commands here
-
-  # Notify on release
-  release-notification:
-    name: Release Notification
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: github.event_name == 'release'
-    
-    steps:        
-    - name: Create deployment record
-      run: |
-        echo "🎉 TIC_TAC_TOE Release ${{ github.event.release.tag_name || github.sha }} deployed successfully!"
-        echo "Deployment completed at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "Deployed by: ${{ github.actor }}"
+          build/
+          *.out
