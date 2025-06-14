@@ -1,0 +1,360 @@
+# .github/workflows/ci-cd.yml
+name: TIC_TAC_TOE CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  # Continuous Integration Jobs
+  lint-and-format:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run ESLint
+      run: npm run lint
+      
+    - name: Run Prettier
+      run: npm run format:check
+      
+    - name: Check TypeScript
+      run: npm run type-check
+
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    
+    strategy:
+      matrix:
+        browser: [chrome, firefox, edge]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run unit tests
+      run: npm run test:unit
+      
+    - name: Run integration tests
+      run: npm run test:integration
+      
+    - name: Run E2E tests
+      run: npm run test:e2e:${{ matrix.browser }}
+      
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage/lcov.info
+        flags: frontend
+        name: frontend-${{ matrix.browser }}
+
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tictactoe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        
+    - name: Run Python linting
+      run: |
+        flake8 src/ tests/
+        black --check src/ tests/
+        
+    - name: Run backend unit tests
+      run: pytest tests/unit/ -v --cov=src/
+      env:
+        DATABASE_URL: postgresql://postgres:test@localhost:5432/tictactoe_test
+        REDIS_URL: redis://localhost:6379
+        
+    - name: Run backend integration tests
+      run: pytest tests/integration/ -v
+      env:
+        DATABASE_URL: postgresql://postgres:test@localhost:5432/tictactoe_test
+        REDIS_URL: redis://localhost:6379
+        
+    - name: Upload backend coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+        flags: backend
+        name: backend-coverage
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: [lint-and-format]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run npm audit
+      run: npm audit --audit-level moderate
+      
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+        
+    - name: Run OWASP ZAP security scan
+      uses: zaproxy/action-baseline@v0.7.0
+      with:
+        target: 'http://localhost:3000'
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [test-frontend, test-backend, security-scan]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build frontend
+      run: npm run build
+      env:
+        NODE_ENV: production
+        
+    - name: Build Docker image
+      run: |
+        docker build -t tictactoe:${{ github.sha }} .
+        docker tag tictactoe:${{ github.sha }} tictactoe:latest
+        
+    - name: Save Docker image
+      run: docker save tictactoe:${{ github.sha }} | gzip > tictactoe-image.tar.gz
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: |
+          dist/
+          tictactoe-image.tar.gz
+        retention-days: 30
+
+  # Continuous Deployment Jobs
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+        
+    - name: Load Docker image
+      run: docker load < tictactoe-image.tar.gz
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      
+    - name: Push to ECR
+      run: |
+        docker tag tictactoe:${{ github.sha }} ${{ steps.login-ecr.outputs.registry }}/tictactoe:staging-${{ github.sha }}
+        docker push ${{ steps.login-ecr.outputs.registry }}/tictactoe:staging-${{ github.sha }}
+        
+    - name: Deploy to ECS Staging
+      run: |
+        aws ecs update-service \
+          --cluster tictactoe-staging \
+          --service tictactoe-staging-service \
+          --force-new-deployment
+          
+    - name: Run smoke tests
+      run: |
+        sleep 60  # Wait for deployment
+        npm run test:smoke -- --env=staging
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+        
+    - name: Load Docker image
+      run: docker load < tictactoe-image.tar.gz
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      
+    - name: Push to ECR
+      run: |
+        docker tag tictactoe:${{ github.sha }} ${{ steps.login-ecr.outputs.registry }}/tictactoe:prod-${{ github.sha }}
+        docker tag tictactoe:${{ github.sha }} ${{ steps.login-ecr.outputs.registry }}/tictactoe:latest
+        docker push ${{ steps.login-ecr.outputs.registry }}/tictactoe:prod-${{ github.sha }}
+        docker push ${{ steps.login-ecr.outputs.registry }}/tictactoe:latest
+        
+    - name: Blue-Green Deployment
+      run: |
+        # Deploy to green environment first
+        aws ecs update-service \
+          --cluster tictactoe-prod \
+          --service tictactoe-green-service \
+          --task-definition tictactoe-prod:${{ github.run_number }} \
+          --force-new-deployment
+          
+        # Wait for green deployment to be stable
+        aws ecs wait services-stable \
+          --cluster tictactoe-prod \
+          --services tictactoe-green-service
+          
+    - name: Health check and traffic switch
+      run: |
+        # Run health checks on green environment
+        npm run healthcheck -- --env=green-prod
+        
+        # Switch traffic from blue to green
+        aws elbv2 modify-rule \
+          --rule-arn ${{ secrets.ALB_RULE_ARN }} \
+          --actions Type=forward,TargetGroupArn=${{ secrets.GREEN_TARGET_GROUP_ARN }}
+          
+        # Wait and verify
+        sleep 30
+        npm run healthcheck -- --env=prod
+        
+    - name: Cleanup old blue environment
+      run: |
+        # Scale down blue environment
+        aws ecs update-service \
+          --cluster tictactoe-prod \
+          --service tictactoe-blue-service \
+          --desired-count 0
+
+  release-notification:
+    name: Release Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Notify Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        title: '🎉 TIC_TAC_TOE Release Deployed'
+        text: |
+          Release ${{ github.event.release.tag_name }} has been successfully deployed to production!
+          
+          📋 Release Notes: ${{ github.event.release.html_url }}
+          🚀 Live URL: https://tictactoe.yourapp.com
+          📊 Monitoring: https://monitoring.yourapp.com
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        
+    - name: Create deployment record
+      run: |
+        curl -X POST "${{ secrets.DEPLOYMENT_WEBHOOK }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "service": "tictactoe",
+            "version": "${{ github.event.release.tag_name }}",
+            "environment": "production",
+            "deployed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+            "deployed_by": "${{ github.actor }}"
+          }'
