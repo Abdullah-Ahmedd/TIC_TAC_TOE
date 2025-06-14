@@ -1,0 +1,47 @@
+name: CI Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Install C++ compiler and build tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential g++
+        
+    - name: Compile main.cpp
+      run: |
+        echo "Compiling main.cpp..."
+        g++ -std=c++17 -Wall -Wextra -Werror -o main main.cpp
+        
+    - name: Verify compilation success
+      run: |
+        if [ -f "./main" ]; then
+          echo "✅ Compilation successful - executable 'main' created"
+          ls -la main
+        else
+          echo "❌ Compilation failed - executable not found"
+          exit 1
+        fi
+        
+    - name: Run the compiled program
+      run: |
+        echo "Executing the program..."
+        timeout 30s ./main || {
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "⚠️  Program timed out after 30 seconds"
+          else
+            echo "Program exited with code: $EXIT_CODE"
+          fi
+        }
