@@ -1,4 +1,3 @@
-
 Software Requirements Specification (SRS)
 =========================================
 
@@ -22,7 +21,7 @@ The software allows users to register, login, and play Tic Tac Toe either agains
 1.4 Definitions:
 - AI: Artificial Intelligence.
 - SQLite: Lightweight embedded SQL database engine.
-- GUI: Graphical User Interface (not applicable, as this is console-based).
+- GUI: Graphical User Interface.
 
 2. Overall Description
 -----------------------
@@ -102,7 +101,7 @@ C. Authors and Contributors:
  Developed by 
 -Abdullah Ahmed
 -Ahmed Osama
-- AHmed Bakeer
+-Ahmed Bakeer
 -Mohamed Amr
 -Huissen Mohamed
 
