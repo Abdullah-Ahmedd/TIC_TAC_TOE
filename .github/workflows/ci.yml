@@ -20,10 +20,9 @@ jobs:
 
     - name: Compile with MSVC
       shell: cmd
+      working-directory: "Second draft of tictactoe"
       run: |
         echo Compiling with MSVC...
-
-        cd "final Second draft of tictactoe"
 
         set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
         set COMMON_FLAGS=/EHsc /std:c++17
@@ -40,7 +39,7 @@ jobs:
 
     - name: Verify executables
       shell: powershell
-      working-directory: ./final Second draft of tictactoe
+      working-directory: "Second draft of tictactoe"
       run: |
         dir main_*.exe
         if (Test-Path main_basic.exe) { Write-Host "main_basic.exe exists" }
@@ -49,7 +48,7 @@ jobs:
 
     - name: Test executables
       shell: powershell
-      working-directory: ./final Second draft of tictactoe
+      working-directory: "Second draft of tictactoe"
       timeout-minutes: 2
       continue-on-error: true
       run: |
@@ -73,7 +72,7 @@ jobs:
       with:
         name: windows-executables
         path: |
-          final Second draft of tictactoe/main_basic.exe
-          final Second draft of tictactoe/main_debug.exe
-          final Second draft of tictactoe/main_optimized.exe
+          Second draft of tictactoe/main_basic.exe
+          Second draft of tictactoe/main_debug.exe
+          Second draft of tictactoe/main_optimized.exe
         retention-days: 7
