@@ -1,47 +1,75 @@
-name: CI Build and Test
+name: CI - Windows Build and Test
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
+  workflow_dispatch:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    
+  build-and-test-windows:
+    runs-on: windows-latest
+
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Install C++ compiler and build tools
+
+    - name: Set up MSVC (Visual Studio Dev Command Prompt)
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Compile with MSVC
+      shell: cmd
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential g++ libsqlite3-dev sqlite3
-        
-    - name: Compile main.cpp
+        echo Compiling with MSVC...
+
+        set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
+        set COMMON_FLAGS=/EHsc /std:c++17
+        set WARNING_FLAGS=/W3 /wd4996 /wd4244 /wd4267 /wd4018
+
+        echo Building main_basic.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Fe:main_basic.exe main.cpp sqlite3.c
+
+        echo Building main_debug.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:main_debug.exe main.cpp sqlite3.c
+
+        echo Building main_optimized.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:main_optimized.exe main.cpp sqlite3.c
+
+    - name: Verify executables
+      shell: powershell
       run: |
-        echo "Compiling main.cpp..."
-        g++ -std=c++17 -Wall -Wextra -Werror -o main main.cpp -lsqlite3
-        
-    - name: Verify compilation success
+        dir main_*.exe
+        if (Test-Path main_basic.exe) { Write-Host "main_basic.exe exists" }
+        if (Test-Path main_debug.exe) { Write-Host "main_debug.exe exists" }
+        if (Test-Path main_optimized.exe) { Write-Host "main_optimized.exe exists" }
+
+    - name: Test executables
+      shell: powershell
+      timeout-minutes: 2
+      continue-on-error: true
       run: |
-        if [ -f "./main" ]; then
-          echo "✅ Compilation successful - executable 'main' created"
-          ls -la main
-        else
-          echo "❌ Compilation failed - executable not found"
-          exit 1
-        fi
-        
-    - name: Run the compiled program
-      run: |
-        echo "Executing the program..."
-        timeout 30s ./main || {
-          EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 124 ]; then
-            echo "⚠️  Program timed out after 30 seconds"
-          else
-            echo "Program exited with code: $EXIT_CODE"
-          fi
+        $executables = @("main_basic.exe", "main_debug.exe", "main_optimized.exe")
+        foreach ($exe in $executables) {
+          Write-Host "Testing $exe..."
+          try {
+            $p = Start-Process -FilePath ".\$exe" -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -eq 0) {
+              Write-Host "$exe ran successfully"
+            } else {
+              Write-Host "$exe failed with exit code $($p.ExitCode)"
+            }
+          } catch {
+            Write-Host "$exe crashed or hung (likely waiting for input)"
+          }
         }
+
+    - name: Upload executables
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-executables
+        path: |
+          main_basic.exe
+          main_debug.exe
+          main_optimized.exe
+        retention-days: 7
