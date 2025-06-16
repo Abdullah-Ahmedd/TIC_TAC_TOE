@@ -3,7 +3,7 @@ name: CD - Windows Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Only run when a tag like v1.0.0 is pushed
   release:
     types: [created]
   workflow_dispatch:
