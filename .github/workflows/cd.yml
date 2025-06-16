@@ -3,7 +3,7 @@ name: CD - Windows Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Only run when a tag like v1.0.0 is pushed
+      - 'v*'
   release:
     types: [created]
   workflow_dispatch:
@@ -31,16 +31,15 @@ jobs:
     - name: Build Executables
       shell: cmd
       run: |
-        cd "final\Second draft of tictactoe"
         set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
         set COMMON_FLAGS=/EHsc /std:c++17
         set WARNING_FLAGS=/W3 /wd4996 /wd4244 /wd4267 /wd4018
 
         echo Building release...
-        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:TicTacToe.exe tictactoe.cpp sqlite3.c
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:main_release.exe "Second draft of tictactoe\tictactoe.cpp" "Second draft of tictactoe\sqlite3.c"
 
         echo Building debug...
-        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:TicTacToe_debug.exe tictactoe.cpp sqlite3.c
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:main_debug.exe "Second draft of tictactoe\tictactoe.cpp" "Second draft of tictactoe\sqlite3.c"
 
     - name: Prepare Release Directory
       shell: powershell
@@ -48,19 +47,19 @@ jobs:
         New-Item -ItemType Directory -Force -Path "release/bin"
         New-Item -ItemType Directory -Force -Path "release/src"
 
-        Copy-Item "final/Second draft of tictactoe/TicTacToe.exe" release/bin/
-        Copy-Item "final/Second draft of tictactoe/TicTacToe_debug.exe" release/bin/
+        Copy-Item main_release.exe release/bin/
+        Copy-Item main_debug.exe release/bin/
 
-        Copy-Item "final/Second draft of tictactoe/tictactoe.cpp" release/src/
-        Copy-Item "final/Second draft of tictactoe/sqlite3.c" release/src/
-        Copy-Item "final/Second draft of tictactoe/sqlite3.h" release/src/
+        Copy-Item "Second draft of tictactoe\tictactoe.cpp" release/src/
+        Copy-Item "Second draft of tictactoe\sqlite3.c" release/src/
+        Copy-Item "Second draft of tictactoe\sqlite3.h" release/src/
 
         @"
         # TIC_TAC_TOE Release
 
         ## Executables
-        - bin\TicTacToe.exe (Release)
-        - bin\TicTacToe_debug.exe (Debug)
+        - bin\main_release.exe (Release)
+        - bin\main_debug.exe (Debug)
 
         ## Source Code
         - src\tictactoe.cpp
@@ -70,7 +69,7 @@ jobs:
         ## Usage
         Run:
         ```
-        bin\TicTacToe.exe
+        bin\main_release.exe
         ```
         "@ | Out-File -FilePath release\README.md -Encoding utf8
 
@@ -84,7 +83,7 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
         fi
 
-        ARCHIVE_NAME="TIC_TAC_TOE_windows_${VERSION}.zip"
+        ARCHIVE_NAME="tic_tac_toe_windows_${VERSION}.zip"
         echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
