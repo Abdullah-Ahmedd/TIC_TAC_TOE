@@ -1,0 +1,133 @@
+name: CD - Windows Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build-and-package:
+    runs-on: windows-latest
+
+    outputs:
+      archive_name: ${{ steps.set-vars.outputs.archive_name }}
+      version: ${{ steps.set-vars.outputs.version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Build Executables
+      shell: cmd
+      run: |
+        cd "final\Second draft of tictactoe"
+        set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
+        set COMMON_FLAGS=/EHsc /std:c++17
+        set WARNING_FLAGS=/W3 /wd4996 /wd4244 /wd4267 /wd4018
+
+        echo Building release...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:TicTacToe.exe tictactoe.cpp sqlite3.c
+
+        echo Building debug...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:TicTacToe_debug.exe tictactoe.cpp sqlite3.c
+
+    - name: Prepare Release Directory
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path "release/bin"
+        New-Item -ItemType Directory -Force -Path "release/src"
+
+        Copy-Item "final/Second draft of tictactoe/TicTacToe.exe" release/bin/
+        Copy-Item "final/Second draft of tictactoe/TicTacToe_debug.exe" release/bin/
+
+        Copy-Item "final/Second draft of tictactoe/tictactoe.cpp" release/src/
+        Copy-Item "final/Second draft of tictactoe/sqlite3.c" release/src/
+        Copy-Item "final/Second draft of tictactoe/sqlite3.h" release/src/
+
+        @"
+        # TIC_TAC_TOE Release
+
+        ## Executables
+        - bin\TicTacToe.exe (Release)
+        - bin\TicTacToe_debug.exe (Debug)
+
+        ## Source Code
+        - src\tictactoe.cpp
+        - src\sqlite3.c
+        - src\sqlite3.h
+
+        ## Usage
+        Run:
+        ```
+        bin\TicTacToe.exe
+        ```
+        "@ | Out-File -FilePath release\README.md -Encoding utf8
+
+    - name: Set Version and Archive Name
+      id: set-vars
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+
+        ARCHIVE_NAME="TIC_TAC_TOE_windows_${VERSION}.zip"
+        echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Zip Release
+      shell: powershell
+      run: |
+        Compress-Archive -Path "release/*" -DestinationPath "${{ steps.set-vars.outputs.archive_name }}"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-release-${{ steps.set-vars.outputs.version }}
+        path: |
+          ${{ steps.set-vars.outputs.archive_name }}
+          release/
+        retention-days: 30
+
+  create-release:
+    needs: build-and-package
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: windows-release-${{ needs.build-and-package.outputs.version }}
+
+    - name: Generate Release Notes
+      run: |
+        echo "## 🗒️ Release Notes" > RELEASE_NOTES.md
+        echo "" >> RELEASE_NOTES.md
+        echo "**Version**: ${{ needs.build-and-package.outputs.version }}" >> RELEASE_NOTES.md
+        echo "- Contains Release and Debug binaries" >> RELEASE_NOTES.md
+        echo "- Built using MSVC on Windows" >> RELEASE_NOTES.md
+
+    - name: Publish Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.build-and-package.outputs.version }}
+        name: Release ${{ needs.build-and-package.outputs.version }}
+        body_path: RELEASE_NOTES.md
+        files: |
+          ${{ needs.build-and-package.outputs.archive_name }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
