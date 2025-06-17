@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <vector>
 #include "sqlite3.h"
@@ -6,6 +5,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <sstream>
+#include "game.h"
 
 using namespace std;
 
@@ -284,8 +284,10 @@ void saveGameHistory(const string& result, const string& user) {
 
 // View Game History
 void viewHistory() {
-    cout << "\nGame History:\n";
-    string sql = "SELECT username, result, date FROM History ORDER BY date DESC LIMIT 20;";
+    cout << "\nGame History for " << currentUser << ":\n";
+
+    string escapedUser = escapeString(currentUser);
+    string sql = "SELECT username, result, date FROM History WHERE username = '" + escapedUser + "' ORDER BY date DESC LIMIT 20;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
 
@@ -312,6 +314,7 @@ void viewHistory() {
 
     sqlite3_finalize(stmt);
 }
+
 
 // Play Game
 void playGame() {
