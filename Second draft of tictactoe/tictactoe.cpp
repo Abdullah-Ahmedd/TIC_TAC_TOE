@@ -15,6 +15,7 @@ string secondUser;
 sqlite3* db;
 bool againstAI = false;
 int aiDifficulty = 1; // 1 = Easy, 2 = Medium, 3 = Hard
+char userSymbol = 'X'; // Default symbol for user
 
 // Hash function (simple)
 string simpleHash(const string& password) {
@@ -318,22 +319,23 @@ void viewHistory() {
 // Play Game
 void playGame() {
     board = vector<vector<char>>(3, vector<char>(3, ' ')); // Reset board
-    char player = 'X';
+    char player = userSymbol;
+    char aiChar = (userSymbol == 'X') ? 'O' : 'X';
     int row, col;
 
     while (true) {
         displayBoard();
 
-        string currentPlayerName = (player == 'X') ? currentUser : (againstAI ? "AI" : secondUser);
+        string currentPlayerName = (player == userSymbol) ? currentUser : (againstAI ? "AI" : secondUser);
 
-        if (againstAI && player == 'O') {
+        if (againstAI && player == aiChar) {
             pair<int, int> move;
             if (aiDifficulty == 1)
                 move = easyAIMove();
             else if (aiDifficulty == 2)
-                move = mediumAIMove('O', 'X');
+                move = mediumAIMove(aiChar, userSymbol);
             else
-                move = hardAIMove('O', 'X');
+                move = hardAIMove(aiChar, userSymbol);
 
             row = move.first;
             col = move.second;
@@ -360,7 +362,7 @@ void playGame() {
         if (winner != ' ') {
             displayBoard();
             if (againstAI) {
-                if (winner == 'X') {
+                if (winner == userSymbol) {
                     cout << "Congratulations " << currentUser << "! You win!\n";
                     saveGameHistory("Win vs AI", currentUser);
                 }
@@ -370,8 +372,8 @@ void playGame() {
                 }
             }
             else {
-                string winnerName = (winner == 'X') ? currentUser : secondUser;
-                string loserName = (winner == 'X') ? secondUser : currentUser;
+                string winnerName = (winner == userSymbol) ? currentUser : secondUser;
+                string loserName = (winner == userSymbol) ? secondUser : currentUser;
                 cout << "Congratulations " << winnerName << "! You win!\n";
                 saveGameHistory("Won against " + loserName, winnerName);
                 saveGameHistory("Lost to " + winnerName, loserName);
@@ -488,12 +490,24 @@ int main() {
 
         if (choice == 1) {
             againstAI = false;
+            cout << "\nChoose your symbol:\n1. X\n2. O\nChoice: ";
+            int symbolChoice;
+            cin >> symbolChoice;
+            userSymbol = (symbolChoice == 2) ? 'O' : 'X';
+            cout << "You chose: " << userSymbol << endl;
+            
             if (handleSecondPlayer()) {
                 playGame();
             }
         }
         else if (choice == 2) {
             againstAI = true;
+            cout << "\nChoose your symbol:\n1. X\n2. O\nChoice: ";
+            int symbolChoice;
+            cin >> symbolChoice;
+            userSymbol = (symbolChoice == 2) ? 'O' : 'X';
+            cout << "You chose: " << userSymbol << endl;
+            
             cout << "\nChoose AI Difficulty:\n";
             cout << "1. Easy\n2. Medium\n3. Hard\nChoice: ";
             cin >> aiDifficulty;
