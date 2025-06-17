@@ -5,7 +5,6 @@
 #include <ctime>
 #include <cstdlib>
 #include <sstream>
-#include "game.h"
 
 using namespace std;
 
