@@ -495,6 +495,8 @@ pair<int, int> mediumAIMove(char aiChar, char playerChar) {
 ================================================================================
                            MINIMAX ALGORITHM EXPLANATION
 ================================================================================
+https://www.youtube.com/watch?v=5y2a0Zhgq0U // this video explains the concept of minimax
+https://www.youtube.com/watch?v=l-hh51ncgDI //this video explains the steps to be done at each play to determine the best play 
 
 The Minimax algorithm is a decision-making algorithm used in game theory and 
 artificial intelligence for two-player, zero-sum games (like Tic-Tac-Toe, 
