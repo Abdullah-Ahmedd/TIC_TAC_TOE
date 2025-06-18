@@ -9,7 +9,7 @@ A modern, interactive implementation of the classic Tic-Tac-Toe game built with 
 - **Multiple Game Modes**
   - 👥 Human vs Human
   - 🤖 Human vs Easy AI (Random move)
-  - 🤖 Human vs Medium AI (Priority: attack ,deffence anf then random moves)
+  - 🤖 Human vs Medium AI (Priority: attack ,deffence and then random moves)
   - 🧠 Human vs Hard AI (Minimax algorithm - Unbeatable)
   
 - **Modern UI/UX**
