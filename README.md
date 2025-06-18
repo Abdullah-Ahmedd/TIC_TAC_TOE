@@ -2,7 +2,7 @@
 
 A modern, interactive implementation of the classic Tic-Tac-Toe game built with web technologies. Features multiple game modes including human vs human and human vs AI gameplay with different difficulty levels.
 
-![Game Preview](https://img.shields.io/badge/Game-Tic--Tac--Toe-blue) ![HTML5](https://img.shields.io/badge/HTML5-E34F26?logo=html5&logoColor=white) ![CSS3](https://img.shields.io/badge/CSS3-1572B6?logo=css3&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
+![Game Preview](https://github.com/Abdullah-Ahmedd/TIC_TAC_TOE/releases) 
 
 ## 🚀 Features
 
@@ -23,10 +23,7 @@ A modern, interactive implementation of the classic Tic-Tac-Toe game built with 
   - Reset functionality
   - Winner detection and celebration
   - Draw/tie game handling
-
-## 🎯 Demo
-
-[**🎮 Play Live Demo**](https://abdullah-ahmedd.github.io/TIC_TAC_TOE/)
+  - 
 
 ## 📋 How to Play
 
@@ -37,8 +34,8 @@ A modern, interactive implementation of the classic Tic-Tac-Toe game built with 
 
 ## 🛠️ Installation & Setup
 
-### Option 1: Play Online
-Simply visit the [live demo](https://abdullah-ahmedd.github.io/TIC_TAC_TOE/) to play instantly.
+### Option 1: Play Offline using the built-in full application implemented with GUI
+
 
 ### Option 2: Run Locally
 
