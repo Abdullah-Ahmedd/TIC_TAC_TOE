@@ -1,0 +1,101 @@
+# This is a GitHub Actions workflow file - it tells GitHub how to automatically build and test your code
+# The "name" is just a label that appears in GitHub's interface
+name: CI - Windows Build and Test
+
+# "on" defines when this workflow should run automatically
+on:
+  # Run when code is pushed to these specific branches
+  push:
+    branches: [ main, master, develop ]
+  # Run when someone creates a pull request targeting these branches
+  pull_request:
+    branches: [ main, master, develop ]
+  # Allow manual triggering from GitHub's web interface
+  workflow_dispatch:
+
+# "jobs" contains the actual work to be done - you can have multiple jobs that run in parallel
+jobs:
+  # This is the name of our job (you can name it whatever you want)
+  build-and-test-windows:
+    # Tell GitHub to use a Windows computer to run this job
+    runs-on: windows-latest
+    
+    # "steps" is a list of individual tasks to perform, executed in order
+    steps:
+    # Step 1: Download your code from the repository
+    - name: Checkout code
+      uses: actions/checkout@v4  # This is a pre-built action from GitHub
+    
+    # Step 2: Set up Microsoft Visual C++ compiler
+    - name: Set up MSVC (Visual Studio Dev Command Prompt)
+      uses: ilammy/msvc-dev-cmd@v1  # Another pre-built action
+    
+    # Step 3: Actually compile the C++ code
+    - name: Compile with MSVC
+      shell: cmd  # Use Windows command prompt (not PowerShell)
+      working-directory: "Second draft of tictactoe"  # Change to this folder first
+      run: |  # The "|" means everything below is a multi-line script
+        # These are Windows batch commands that will be executed
+        echo Compiling with MSVC...
+        # Set up compiler flags (options for how to compile)
+        set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
+        set COMMON_FLAGS=/EHsc /std:c++17
+        set WARNING_FLAGS=/W3 /wd4996 /wd4244 /wd4267 /wd4018
+        
+        # Build three different versions of the same program
+        echo Building main_basic.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Fe:main_basic.exe tictactoe.cpp sqlite3.c
+        echo Building main_debug.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:main_debug.exe tictactoe.cpp sqlite3.c
+        echo Building main_optimized.exe...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:main_optimized.exe tictactoe.cpp sqlite3.c
+    
+    # Step 4: Check that the compiled programs actually exist
+    - name: Verify executables
+      shell: powershell  # Use PowerShell for this step
+      working-directory: "Second draft of tictactoe"
+      run: |
+        # List all files that start with "main_" and end with ".exe"
+        dir main_*.exe
+        # Check if each specific file exists and print a message
+        if (Test-Path main_basic.exe) { Write-Host "main_basic.exe exists" }
+        if (Test-Path main_debug.exe) { Write-Host "main_debug.exe exists" }
+        if (Test-Path main_optimized.exe) { Write-Host "main_optimized.exe exists" }
+    
+    # Step 5: Try to run the compiled programs to see if they work
+    - name: Test executables
+      shell: powershell
+      working-directory: "Second draft of tictactoe"
+      timeout-minutes: 2  # Don't let this step run longer than 2 minutes
+      continue-on-error: true  # Don't fail the whole workflow if this step fails
+      run: |
+        # Create a list of the three executable files
+        $executables = @("main_basic.exe", "main_debug.exe", "main_optimized.exe")
+        # Try to run each executable file
+        foreach ($exe in $executables) {
+          Write-Host "Testing $exe..."
+          try {
+            # Start the program and wait for it to finish
+            $p = Start-Process -FilePath ".\$exe" -Wait -PassThru -NoNewWindow
+            # Check if the program exited successfully (exit code 0 means success)
+            if ($p.ExitCode -eq 0) {
+              Write-Host "$exe ran successfully"
+            } else {
+              Write-Host "$exe failed with exit code $($p.ExitCode)"
+            }
+          } catch {
+            # If something goes wrong, print this message
+            Write-Host "$exe crashed or hung (likely waiting for input)"
+          }
+        }
+    
+    # Step 6: Save the compiled programs so you can download them later
+    - name: Upload executables
+      uses: actions/upload-artifact@v4  # Another pre-built GitHub action
+      with:  # Configuration for the upload action
+        name: windows-executables  # Name for the downloadable package
+        path: |  # Which files to include in the package
+          Second draft of tictactoe/main_basic.exe
+          Second draft of tictactoe/main_debug.exe
+          Second draft of tictactoe/main_optimized.exe
+        retention-days: 7  # Keep the files available for download for 7 days
