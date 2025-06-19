@@ -63,10 +63,14 @@ void setupDatabase() {
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "username TEXT,"
         "result TEXT,"
+        "game_details TEXT,"
         "date TIMESTAMP DEFAULT CURRENT_TIMESTAMP);";
 
     executeSQL(createUsers);
     executeSQL(createHistory);
+
+    // Add game_details column if it doesn't exist (for backward compatibility)
+    executeSQL("ALTER TABLE History ADD COLUMN game_details TEXT DEFAULT '';");
 }
 
 // Register
@@ -138,6 +142,39 @@ void displayBoard() {
         cout << i << " ";
         for (int j = 0; j < 3; j++) {
             cout << board[i][j];
+            if (j < 2) cout << " | ";
+        }
+        cout << "\n";
+        if (i < 2) cout << "  ---------\n";
+    }
+    cout << "\n";
+}
+
+// Function to convert board to string for storage
+string boardToString() {
+    string boardStr = "";
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            boardStr += board[i][j];
+        }
+    }
+    return boardStr;
+}
+
+// Function to display board from string
+void displayBoardFromString(const string& boardStr) {
+    if (boardStr.length() != 9) {
+        cout << "Invalid board data.\n";
+        return;
+    }
+
+    cout << "\n";
+    cout << "  0   1   2\n";
+    for (int i = 0; i < 3; i++) {
+        cout << i << " ";
+        for (int j = 0; j < 3; j++) {
+            char cell = boardStr[i * 3 + j];
+            cout << cell;
             if (j < 2) cout << " | ";
         }
         cout << "\n";
@@ -274,10 +311,11 @@ pair<int, int> hardAIMove(char aiChar, char playerChar) {
 void saveGameHistory(const string& result, const string& user) {
     string escapedUser = escapeString(user);
     string escapedResult = escapeString(result);
+    string gameDetails = boardToString();
 
     stringstream ss;
-    ss << "INSERT INTO History (username, result) VALUES ('"
-        << escapedUser << "', '" << escapedResult << "');";
+    ss << "INSERT INTO History (username, result, game_details) VALUES ('"
+        << escapedUser << "', '" << escapedResult << "', '" << gameDetails << "');";
 
     executeSQL(ss.str());
 }
@@ -287,7 +325,7 @@ void viewHistory() {
     cout << "\nGame History for " << currentUser << ":\n";
 
     string escapedUser = escapeString(currentUser);
-    string sql = "SELECT username, result, date FROM History WHERE username = '" + escapedUser + "' ORDER BY date DESC LIMIT 20;";
+    string sql = "SELECT username, result, date, game_details FROM History WHERE username = '" + escapedUser + "' ORDER BY date DESC LIMIT 20;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
 
@@ -300,21 +338,54 @@ void viewHistory() {
     cout << "| Username       | Result          | Date                  |\n";
     cout << "----------------------------------------\n";
 
+    vector<string> gameDetails;
+    int gameNumber = 1;
+
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         string username = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         string result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         string date = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        cout << "| " << username;
-        for (size_t i = username.length(); i < 15; i++) cout << " ";
+        const char* details = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        string gameDetailsStr = details ? details : "";
+
+        cout << "| " << gameNumber << ". " << username;
+        for (size_t i = username.length() + 3; i < 15; i++) cout << " ";
         cout << "| " << result;
         for (size_t i = result.length(); i < 15; i++) cout << " ";
         cout << "| " << date << " |\n";
+
+        gameDetails.push_back(gameDetailsStr);
+        gameNumber++;
     }
     cout << "----------------------------------------\n";
 
     sqlite3_finalize(stmt);
-}
 
+    // Ask if user wants to see game details
+    cout << "\nWould you like to see the final board state of any game? (y/n): ";
+    char choice;
+    cin >> choice;
+
+    if (choice == 'y' || choice == 'Y') {
+        cout << "Enter game number (1-" << gameDetails.size() << "): ";
+        int gameNum;
+        cin >> gameNum;
+
+        if (gameNum >= 1 && gameNum <= (int)gameDetails.size()) {
+            string details = gameDetails[gameNum - 1];
+            if (!details.empty()) {
+                cout << "\nFinal board state for game " << gameNum << ":\n";
+                displayBoardFromString(details);
+            }
+            else {
+                cout << "No game details available for this game.\n";
+            }
+        }
+        else {
+            cout << "Invalid game number.\n";
+        }
+    }
+}
 
 // Play Game
 void playGame() {
@@ -495,7 +566,7 @@ int main() {
             cin >> symbolChoice;
             userSymbol = (symbolChoice == 2) ? 'O' : 'X';
             cout << "You chose: " << userSymbol << endl;
-            
+
             if (handleSecondPlayer()) {
                 playGame();
             }
@@ -507,7 +578,7 @@ int main() {
             cin >> symbolChoice;
             userSymbol = (symbolChoice == 2) ? 'O' : 'X';
             cout << "You chose: " << userSymbol << endl;
-            
+
             cout << "\nChoose AI Difficulty:\n";
             cout << "1. Easy\n2. Medium\n3. Hard\nChoice: ";
             cin >> aiDifficulty;
