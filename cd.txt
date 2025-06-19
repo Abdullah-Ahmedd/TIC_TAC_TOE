@@ -1,0 +1,180 @@
+# This is a GitHub Actions workflow file written in YAML
+# GitHub Actions is a CI/CD (Continuous Integration/Continuous Deployment) service
+# This workflow automatically builds and releases a Windows application
+
+# The name of this workflow (displayed in GitHub's Actions tab)
+name: CD - Windows Build and Release
+
+# "on" defines when this workflow should run
+on:
+  # Run when a new tag is pushed that starts with 'v' (like v1.0.0, v2.1.3, etc.)
+  push:
+    tags:
+      - 'v*'  # The asterisk (*) is a wildcard meaning "anything after v"
+  
+  # Run when a GitHub release is created manually
+  release:
+    types: [created]
+  
+  # Allow manual triggering of this workflow from GitHub's web interface
+  workflow_dispatch:
+    inputs:  # These are form fields that appear when manually running the workflow
+      version:
+        description: 'Release version (e.g., v1.0.0)'  # Help text for the user
+        required: true  # This field must be filled out
+        default: 'v1.0.0'  # Pre-filled value
+
+# Jobs are the main work units - this workflow has 2 jobs that run in sequence
+jobs:
+  # First job: builds the application and creates a package
+  build-and-package:
+    runs-on: windows-latest  # Use a Windows virtual machine (GitHub provides this)
+
+    # Outputs allow this job to pass data to other jobs
+    outputs:
+      archive_name: ${{ steps.set-vars.outputs.archive_name }}  # Name of the zip file created
+      version: ${{ steps.set-vars.outputs.version }}  # Version number used
+
+    # Steps are individual tasks within a job
+    steps:
+    # Download the source code from the repository
+    - name: Checkout code
+      uses: actions/checkout@v4  # This is a pre-made action (like a function)
+
+    # Set up Microsoft Visual C++ compiler
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1  # Another pre-made action
+
+    # Compile the C++ code into executable files
+    - name: Build Executables
+      shell: cmd  # Use Windows Command Prompt for this step
+      run: |  # The pipe (|) allows multiple lines of commands
+        # Set up compiler flags (options for the compiler)
+        set SQLITE_FLAGS=/DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_ENABLE_RTREE /DSQLITE_ENABLE_FTS3
+        set COMMON_FLAGS=/EHsc /std:c++17
+        set WARNING_FLAGS=/W3 /wd4996 /wd4244 /wd4267 /wd4018
+
+        # Build optimized version for end users
+        echo Building release...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /O2 /DNDEBUG /Fe:main_release.exe "Second draft of tictactoe\tictactoe.cpp" "Second draft of tictactoe\sqlite3.c"
+
+        # Build debug version with extra information for developers
+        echo Building debug...
+        cl %COMMON_FLAGS% %WARNING_FLAGS% %SQLITE_FLAGS% /Zi /DDEBUG /Fe:main_debug.exe "Second draft of tictactoe\tictactoe.cpp" "Second draft of tictactoe\sqlite3.c"
+
+    # Organize files into a proper release structure
+    - name: Prepare Release Directory
+      shell: powershell  # Use PowerShell for this step
+      run: |
+        # Create folders for organizing files
+        New-Item -ItemType Directory -Force -Path "release/bin"  # For executable files
+        New-Item -ItemType Directory -Force -Path "release/src"  # For source code
+
+        # Copy the compiled programs to the bin folder
+        Copy-Item main_release.exe release/bin/
+        Copy-Item main_debug.exe release/bin/
+
+        # Copy source code files to the src folder
+        Copy-Item "Second draft of tictactoe\tictactoe.cpp" release/src/
+        Copy-Item "Second draft of tictactoe\sqlite3.c" release/src/
+        Copy-Item "Second draft of tictactoe\sqlite3.h" release/src/
+
+        # Create a README file with instructions
+        # The @"..."@ syntax creates a multi-line string
+        @"
+        # TIC_TAC_TOE Release
+
+        ## Executables
+        - bin\main_release.exe (Release)
+        - bin\main_debug.exe (Debug)
+
+        ## Source Code
+        - src\tictactoe.cpp
+        - src\sqlite3.c
+        - src\sqlite3.h
+
+        ## Usage
+        Run:
+        ```
+        bin\main_release.exe
+        ```
+        "@ | Out-File -FilePath release\README.md -Encoding utf8
+
+    # Figure out what version number to use and create a filename
+    - name: Set Version and Archive Name
+      id: set-vars  # This ID lets other steps reference this step's outputs
+      shell: bash  # Use Linux-style bash shell (works on Windows too)
+      run: |
+        # Check how the workflow was triggered and set version accordingly
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # If manually triggered, use the version the user entered
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          # If triggered by a tag, extract version from the tag name
+          # ${GITHUB_REF#refs/tags/} removes "refs/tags/" from the beginning
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+
+        # Create a descriptive filename for the zip file
+        ARCHIVE_NAME="tic_tac_toe_windows_${VERSION}.zip"
+        
+        # Save these values so other steps and jobs can use them
+        echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    # Create a zip file containing all the release files
+    - name: Zip Release
+      shell: powershell
+      run: |
+        # Compress all files in the release folder into a zip file
+        Compress-Archive -Path "release/*" -DestinationPath "${{ steps.set-vars.outputs.archive_name }}"
+
+    # Upload the created files so the next job can access them
+    # Also makes them available for download from GitHub
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4  # Pre-made action for uploading files
+      with:
+        name: windows-release-${{ steps.set-vars.outputs.version }}  # Name for this artifact
+        path: |  # Files/folders to upload
+          ${{ steps.set-vars.outputs.archive_name }}  # The zip file
+          release/  # The entire release folder
+        retention-days: 30  # Keep these files for 30 days
+
+  # Second job: creates an official GitHub release
+  # This job depends on the first job completing successfully
+  create-release:
+    needs: build-and-package  # Wait for the build-and-package job to finish
+    runs-on: windows-latest
+    # Only run this job if the workflow was triggered manually or by a tag
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    # Download the files that were uploaded by the previous job
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: windows-release-${{ needs.build-and-package.outputs.version }}
+
+    # Create release notes (description) for the GitHub release
+    - name: Generate Release Notes
+      run: |
+        # Create a markdown file with release information
+        # The > symbol redirects output to a file
+        echo "## 🗒️ Release Notes" > RELEASE_NOTES.md
+        echo "" >> RELEASE_NOTES.md  # Empty line
+        echo "**Version**: ${{ needs.build-and-package.outputs.version }}" >> RELEASE_NOTES.md
+        echo "- Contains Release and Debug binaries" >> RELEASE_NOTES.md
+        echo "- Built using MSVC on Windows" >> RELEASE_NOTES.md
+
+    # Create the actual GitHub release
+    - name: Publish Release
+      uses: softprops/action-gh-release@v2  # Pre-made action for creating releases
+      with:
+        tag_name: ${{ needs.build-and-package.outputs.version }}  # Git tag name
+        name: Release ${{ needs.build-and-package.outputs.version }}  # Display name
+        body_path: RELEASE_NOTES.md  # File containing the release description
+        files: |  # Files to attach to the release
+          ${{ needs.build-and-package.outputs.archive_name }}  # The zip file
+      env:
+        # GitHub token for authentication (automatically provided by GitHub)
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
